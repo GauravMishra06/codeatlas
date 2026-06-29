@@ -37,7 +37,10 @@ Built for the **WeMakeDevs × Cognee Hackathon** — *"The Hangover Part AI: Whe
 - MongoDB Atlas account (or local MongoDB)
 - GitHub OAuth App ([create one here](https://github.com/settings/developers))
 - Anthropic API key ([get one here](https://console.anthropic.com))
+- Cognee API key or local setup ([cognee.ai](https://www.cognee.ai))
 
+> [!WARNING]
+> **Cognee Integration is Mandatory but Currently Missing:** CodeAtlas relies on Cognee as its core graph-vector memory layer. Because Cognee is a Python SDK without an official Node.js package, the current backend uses a mock implementation in `server/src/services/cognee.js`. **To be fully functional for the hackathon, you must replace the mock by running a separate Python microservice that runs the real Cognee SDK and communicates with this Node backend.**
 ### 1. Clone the Repository
 
 ```bash
