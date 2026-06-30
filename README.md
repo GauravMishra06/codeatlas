@@ -24,7 +24,7 @@ Built for the **WeMakeDevs × Cognee Hackathon** — *"The Hangover Part AI: Whe
 |-------|-------------|
 | **Frontend** | React, Vite, TailwindCSS, D3.js, React Query, React Router v6, Socket.io-client |
 | **Backend** | Node.js, Express, MongoDB, Mongoose, Cognee SDK, Octokit, JWT, Socket.io |
-| **AI** | Claude API (Anthropic) for impact analysis and natural language answers |
+| **AI** | Gemini API (Google AI Studio) for impact analysis and natural language answers |
 | **Deployment** | Vercel (frontend), Render (backend), MongoDB Atlas (database) |
 
 ---
@@ -36,7 +36,7 @@ Built for the **WeMakeDevs × Cognee Hackathon** — *"The Hangover Part AI: Whe
 - Node.js 18+
 - MongoDB Atlas account (or local MongoDB)
 - GitHub OAuth App ([create one here](https://github.com/settings/developers))
-- Anthropic API key ([get one here](https://console.anthropic.com))
+- Gemini API key ([get one here](https://aistudio.google.com/app/apikey))
 - Cognee API key or local setup ([cognee.ai](https://www.cognee.ai))
 
 > [!WARNING]

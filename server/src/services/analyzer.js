@@ -3,6 +3,7 @@ import Repo from '../models/Repo.js';
 import User from '../models/User.js';
 import * as cognee from './cognee.js';
 import { postReviewComment } from './github.js';
+import { GoogleGenAI } from '@google/genai';
 
 /**
  * Parse a unified diff to extract the list of changed files
@@ -64,36 +65,25 @@ Respond in markdown format. Be concise but thorough.`;
 }
 
 /**
- * Call the Claude API to generate an impact analysis for a PR.
+ * Call the Gemini API to generate an impact analysis for a PR.
  *
  * @param {string} prompt - The formatted prompt.
  * @returns {Promise<string>} The AI-generated review text.
  */
-async function callClaude(prompt) {
+async function callGemini(prompt) {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        maxOutputTokens: 1000,
+      }
     });
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      throw new Error(`Claude API error ${response.status}: ${errBody}`);
-    }
-
-    const data = await response.json();
-    return data.content?.[0]?.text || 'No analysis generated.';
+    return response.text || 'No analysis generated.';
   } catch (err) {
-    console.error('❌ Claude API call failed:', err.message);
+    console.error('❌ Gemini API call failed:', err.message);
     return 'Impact analysis unavailable — AI service error.';
   }
 }
@@ -102,7 +92,7 @@ async function callClaude(prompt) {
  * Full PR analysis pipeline:
  * 1. Parse the diff to extract changed files/functions
  * 2. Query Cognee graph for dependencies of changed files
- * 3. Call Claude API for impact analysis + review
+ * 3. Call Gemini API for impact analysis + review
  * 4. Update the Cognee graph with PR changes
  * 5. Update the PREvent document in MongoDB
  * 6. Emit Socket.io event 'pr:analyzed'
@@ -122,15 +112,18 @@ async function analyzePR(repoId, prNumber, diff, io) {
     const queryText = `files that depend on or import: ${changedFiles.join(', ')}`;
     const cogneeResult = await cognee.query(repoId, queryText);
 
-    // Step 2: Build context and call Claude
-    const prompt = buildPrompt(diff, cogneeResult.rawContext, changedFiles);
-    const review = await callClaude(prompt);
+    const contextText = cogneeResult.success ? cogneeResult.answer : 'No graph context available yet.';
+
+    // Step 2: Build context and call Gemini
+    const prompt = buildPrompt(diff, contextText, changedFiles);
+    const review = await callGemini(prompt);
 
     // Step 3: Extract impacted modules from Cognee results
-    const impactedModules = cogneeResult.nodes.map((node) => ({
-      name: node.name,
-      filePath: node.filePath,
-      reason: `Depends on changed ${node.type === 'Function' ? 'function' : 'file'}`,
+    // The new Cognee /recall endpoint returns mostly text fragments.
+    const impactedModules = (cogneeResult.rawResults || []).slice(0, 5).map((res, i) => ({
+      name: `Context Fragment ${i+1}`,
+      filePath: 'Extracted from Cognee',
+      reason: res.text ? res.text.substring(0, 50) + '...' : 'Related to PR changes',
     }));
 
     // Step 4: Update Cognee graph
@@ -182,7 +175,7 @@ async function analyzePR(repoId, prNumber, diff, io) {
       console.error('⚠️ Failed to post GitHub comment:', commentErr.message);
     }
 
-    return { impactedModules, relatedHistory: cogneeResult.rawContext, review };
+    return { impactedModules, relatedHistory: contextText, review };
   } catch (err) {
     console.error('❌ analyzePR failed:', err.message);
 

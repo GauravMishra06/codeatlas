@@ -3,6 +3,7 @@ import * as cognee from '../services/cognee.js';
 import { fetchRepoTree } from '../services/github.js';
 import User from '../models/User.js';
 import { analyzePR } from '../services/analyzer.js';
+import { GoogleGenAI } from '@google/genai';
 
 /**
  * Query the codebase using natural language.
@@ -37,42 +38,33 @@ async function queryCognee(req, res) {
 Answer the following question about the repository "${repo.fullName}" using the context from the code graph below.
 
 ## Code Graph Context:
-${cogneeResult.rawContext || 'No context available. The repository may not be fully ingested yet.'}
+${cogneeResult.success && cogneeResult.answer ? cogneeResult.answer : 'No context available. The repository may not be fully ingested yet.'}
 
 ## Question:
 ${question}
 
 Provide a clear, concise answer. Reference specific files and functions when possible. If the context is insufficient, say so honestly.`;
 
-    // Call Claude API
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
+    // Call Gemini API
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     let answer = 'Unable to generate answer.';
 
-    if (response.ok) {
-      const data = await response.json();
-      answer = data.content?.[0]?.text || answer;
-    } else {
-      console.error('❌ Claude API error:', response.status);
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: { maxOutputTokens: 1000 }
+      });
+      answer = response.text || answer;
+    } catch (apiErr) {
+      console.error('❌ Gemini API error:', apiErr.message);
     }
 
-    // Extract related nodes for display
-    const relatedNodes = cogneeResult.nodes.map((n) => ({
-      name: n.name,
-      filePath: n.filePath,
-      type: n.type,
+    // Extract related nodes for display (now using rawResults)
+    const relatedNodes = (cogneeResult.rawResults || []).map((n, idx) => ({
+      name: `Result ${idx+1}`,
+      filePath: n.source || 'Cognee Graph',
+      type: n.kind || 'search_result',
     }));
 
     res.json({ success: true, answer, relatedNodes });
