@@ -9,8 +9,11 @@ import RepoView from './pages/RepoView';
  * Redirects to the landing page if no JWT is found in localStorage.
  */
 function ProtectedRoute({ children }) {
-  const token = localStorage.getItem('codeatlas_token');
-  if (!token) {
+  const localToken = localStorage.getItem('codeatlas_token');
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlToken = urlParams.get('token');
+
+  if (!localToken && !urlToken) {
     return <Navigate to="/" replace />;
   }
   return children;
@@ -22,7 +25,7 @@ function ProtectedRoute({ children }) {
  */
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route

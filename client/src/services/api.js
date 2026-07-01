@@ -97,4 +97,13 @@ export async function queryCodebase(repoId, question) {
   return data;
 }
 
+/**
+ * Delete a repository.
+ * @param {string} repoId - MongoDB ObjectId of the repo.
+ */
+export async function deleteRepo(repoId) {
+  const { data } = await api.delete(`/api/repos/${repoId}`);
+  return data;
+}
+
 export default api;

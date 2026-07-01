@@ -5,6 +5,7 @@ import {
   connectRepo,
   getGraph,
   listPRs,
+  deleteRepo,
 } from '../controllers/repoController.js';
 
 const router = Router();
@@ -36,5 +37,12 @@ router.get('/:id/graph', authMiddleware, getGraph);
  * @access Protected
  */
 router.get('/:id/prs', authMiddleware, listPRs);
+
+/**
+ * @route DELETE /api/repos/:id
+ * @desc  Delete a repository
+ * @access Protected
+ */
+router.delete('/:id', authMiddleware, deleteRepo);
 
 export default router;

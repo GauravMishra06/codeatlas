@@ -38,6 +38,44 @@ function getLanguage(filePath) {
 }
 
 /**
+ * Manually traverse a GitHub tree recursively when the API truncates the
+ * recursive response (repos with many files).
+ *
+ * @param {InstanceType<typeof Octokit>} octokit - Authenticated Octokit instance.
+ * @param {string} owner - Repository owner.
+ * @param {string} repo  - Repository name.
+ * @param {string} treeSha - SHA of the tree to fetch.
+ * @param {string} prefix - Path prefix for items in this subtree.
+ * @returns {Promise<Array<{path: string, sha: string, size: number, type: string}>>}
+ */
+async function fetchTreeRecursive(octokit, owner, repo, treeSha, prefix = '') {
+  const { data } = await octokit.rest.git.getTree({
+    owner,
+    repo,
+    tree_sha: treeSha,
+  });
+
+  const results = [];
+
+  for (const item of data.tree) {
+    const fullPath = prefix ? `${prefix}/${item.path}` : item.path;
+
+    if (item.type === 'blob') {
+      // Apply the same code file + size filtering
+      if (item.size && item.size > MAX_FILE_SIZE) continue;
+      const ext = fullPath.slice(fullPath.lastIndexOf('.'));
+      if (!CODE_EXTENSIONS.has(ext)) continue;
+      results.push({ path: fullPath, sha: item.sha, size: item.size, type: item.type });
+    } else if (item.type === 'tree') {
+      const subtreeItems = await fetchTreeRecursive(octokit, owner, repo, item.sha, fullPath);
+      results.push(...subtreeItems);
+    }
+  }
+
+  return results;
+}
+
+/**
  * Fetch the full file tree of a GitHub repository recursively.
  * Filters to code files only and skips files larger than 100 KB.
  *
@@ -61,13 +99,20 @@ async function fetchRepoTree(owner, repo, accessToken) {
       recursive: 'true',
     });
 
-    // Filter to code files under the size limit
-    const codeFiles = treeData.tree.filter((item) => {
-      if (item.type !== 'blob') return false;
-      if (item.size && item.size > MAX_FILE_SIZE) return false;
-      const ext = item.path.slice(item.path.lastIndexOf('.'));
-      return CODE_EXTENSIONS.has(ext);
-    });
+    let codeFiles;
+
+    if (treeData.truncated) {
+      // Tree was truncated — fall back to manual recursive traversal
+      codeFiles = await fetchTreeRecursive(octokit, owner, repo, defaultBranch);
+    } else {
+      // Filter to code files under the size limit
+      codeFiles = treeData.tree.filter((item) => {
+        if (item.type !== 'blob') return false;
+        if (item.size && item.size > MAX_FILE_SIZE) return false;
+        const ext = item.path.slice(item.path.lastIndexOf('.'));
+        return CODE_EXTENSIONS.has(ext);
+      });
+    }
 
     // Fetch content for each file (batched for performance)
     const files = [];
@@ -100,6 +145,8 @@ async function fetchRepoTree(owner, repo, accessToken) {
       );
       files.push(...results.filter(Boolean));
     }
+
+    console.log(`📁 Fetched ${files.length} code files from ${owner}/${repo} (truncated: ${treeData.truncated})`);
 
     return files;
   } catch (err) {

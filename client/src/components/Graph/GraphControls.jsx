@@ -29,45 +29,6 @@ export default function GraphControls({ config, onChange }) {
           <span className="text-xs text-atlas-text">Labels</span>
         </label>
 
-        {/* Charge strength slider */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-atlas-muted">Repulsion</span>
-            <span className="text-xs text-atlas-muted font-mono">
-              {Math.abs(config.chargeStrength)}
-            </span>
-          </div>
-          <input
-            type="range"
-            min="30"
-            max="300"
-            value={Math.abs(config.chargeStrength)}
-            onChange={(e) =>
-              onChange({ ...config, chargeStrength: -Number(e.target.value) })
-            }
-            className="w-full h-1 bg-atlas-border rounded-lg appearance-none cursor-pointer accent-atlas-blue"
-          />
-        </div>
-
-        {/* Link distance slider */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-atlas-muted">Spacing</span>
-            <span className="text-xs text-atlas-muted font-mono">
-              {config.linkDistance}
-            </span>
-          </div>
-          <input
-            type="range"
-            min="30"
-            max="200"
-            value={config.linkDistance}
-            onChange={(e) =>
-              onChange({ ...config, linkDistance: Number(e.target.value) })
-            }
-            className="w-full h-1 bg-atlas-border rounded-lg appearance-none cursor-pointer accent-atlas-blue"
-          />
-        </div>
 
         {/* Legend */}
         <div className="mt-4 pt-3 border-t border-atlas-border">

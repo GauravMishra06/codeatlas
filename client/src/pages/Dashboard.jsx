@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { getRepos } from '../services/api';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { getRepos, deleteRepo } from '../services/api';
 import Navbar from '../components/Shared/Navbar';
 import LoadingSpinner from '../components/Shared/LoadingSpinner';
 import ErrorState from '../components/Shared/ErrorState';
@@ -14,14 +14,18 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const queryClient = useQueryClient();
+
   // Extract token from URL (OAuth redirect) and store in localStorage
   useEffect(() => {
     const token = searchParams.get('token');
     if (token) {
       localStorage.setItem('codeatlas_token', token);
       setSearchParams({}, { replace: true });
+      // Invalidate all queries to force a refetch with the new token
+      queryClient.invalidateQueries();
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, queryClient]);
 
   // Fetch repos
   const {
@@ -37,6 +41,20 @@ export default function Dashboard() {
   });
 
   const repos = data?.repos || [];
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteRepo,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+    },
+  });
+
+  const handleDelete = (e, repoId) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to remove this repository from the dashboard?')) {
+      deleteMutation.mutate(repoId);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-atlas-bg">
@@ -111,18 +129,25 @@ export default function Dashboard() {
         {!isLoading && !isError && repos.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
             {repos.map((repo) => (
-              <button
+              <div
                 key={repo.id}
                 onClick={() => navigate(`/repo/${repo.id}`)}
-                className="group text-left p-6 rounded-xl bg-atlas-card border border-atlas-border hover:border-atlas-blue/30 transition-all duration-300 hover:-translate-y-0.5"
+                className="group text-left p-6 rounded-xl bg-atlas-card border border-atlas-border hover:border-atlas-blue/30 transition-all duration-300 hover:-translate-y-0.5 relative cursor-pointer"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-base font-semibold text-atlas-text group-hover:text-atlas-blue transition-colors truncate pr-2">
+                <button
+                  onClick={(e) => handleDelete(e, repo.id)}
+                  className="absolute top-4 right-4 p-1.5 rounded-md text-atlas-muted opacity-0 group-hover:opacity-100 hover:bg-atlas-red/10 hover:text-atlas-red transition-all duration-200 z-10"
+                  title="Remove Repository"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+
+                <div className="flex items-start justify-between mb-3 pr-8">
+                  <h3 className="text-base font-semibold text-atlas-text group-hover:text-atlas-blue transition-colors truncate">
                     {repo.fullName}
                   </h3>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B949E" strokeWidth="2" className="flex-shrink-0 mt-0.5 group-hover:stroke-atlas-blue transition-colors group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-                    <path d="M7 17L17 7M17 7H7M17 7v10" />
-                  </svg>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mt-4">
@@ -152,7 +177,7 @@ export default function Dashboard() {
                     Last analyzed {new Date(repo.lastAnalyzed).toLocaleDateString()}
                   </p>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}

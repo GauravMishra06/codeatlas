@@ -236,4 +236,27 @@ async function listPRs(req, res) {
   }
 }
 
-export { listRepos, connectRepo, getGraph, listPRs };
+/**
+ * Delete a connected repository.
+ *
+ * @route DELETE /api/repos/:id
+ */
+async function deleteRepo(req, res) {
+  try {
+    const repo = await Repo.findOneAndDelete({ _id: req.params.id, userId: req.userId });
+    if (!repo) {
+      return res.status(404).json({ success: false, error: 'Repository not found' });
+    }
+
+    // Clean up related data
+    await GraphCache.deleteOne({ repoId: repo.repoId });
+    await PREvent.deleteMany({ repoId: repo.repoId });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ deleteRepo failed:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to delete repository' });
+  }
+}
+
+export { listRepos, connectRepo, getGraph, listPRs, deleteRepo };
