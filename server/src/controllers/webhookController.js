@@ -76,10 +76,12 @@ async function handleGitHubWebhook(req, res) {
       ? Array.from({ length: pr.changed_files }, (_, i) => `file_${i}`)
       : [];
 
-    // Emit immediate socket event
+    const repo = await Repo.findOne({ repoId });
     const io = req.app.locals.io;
+
     if (io) {
       io.to(`repo:${repoId}`).emit('pr:received', { prNumber, title });
+      if (repo) io.to(`repo:${repo._id}`).emit('pr:received', { prNumber, title });
     }
 
     // Save PREvent to MongoDB with pending status

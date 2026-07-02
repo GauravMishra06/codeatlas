@@ -10,7 +10,7 @@ import PRImpactCard from './PRImpactCard';
  *
  * @param {{ repoId: string }} props
  */
-export default function PRList({ repoId }) {
+export default function PRList({ repoId, onHighlightImpact }) {
   const { prs, isLoading, isError, error, refetch } = usePRs(repoId);
   const [expandedPR, setExpandedPR] = useState(null);
 
@@ -105,7 +105,9 @@ export default function PRList({ repoId }) {
             </button>
 
             {/* Expanded impact card */}
-            {expandedPR === pr.id && <PRImpactCard pr={pr} />}
+            {expandedPR === pr.id && (
+              <PRImpactCard pr={pr} onHighlightImpact={onHighlightImpact} />
+            )}
           </div>
         ))}
       </div>

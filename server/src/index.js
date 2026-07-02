@@ -26,6 +26,7 @@ const io = new Server(httpServer, {
 });
 
 app.locals.io = io;
+global.__io = io;
 
 // ── Middleware ──────────────────────────────────────────────
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
@@ -51,6 +52,11 @@ io.on('connection', (socket) => {
 
   socket.on('join:repo', (repoId) => {
     socket.join(`repo:${repoId}`);
+  });
+
+  socket.on('join:repo:dual', ({ mongoId, githubRepoId }) => {
+    if (mongoId) socket.join(`repo:${mongoId}`);
+    if (githubRepoId) socket.join(`repo:${githubRepoId}`);
   });
 
   socket.on('disconnect', () => {

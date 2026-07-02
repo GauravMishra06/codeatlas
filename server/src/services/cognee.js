@@ -161,7 +161,8 @@ async function synthesizeAnswer(context, question) {
  * @param {Array<{path: string, content: string, language: string}>} files
  * @returns {Promise<{success: boolean, nodesCreated: number, skipped: number, error?: string}>}
  */
-async function ingest(repoId, files) {
+async function ingest(repoId, files, options = {}) {
+  const { preserveGraphCache = false } = options;
   try {
     const filesToProcess = files.slice(0, MAX_FILES_TO_INGEST);
     const skipped = Math.max(0, files.length - MAX_FILES_TO_INGEST);
@@ -176,6 +177,10 @@ async function ingest(repoId, files) {
 
     for (let i = 0; i < filesToProcess.length; i++) {
       const file = filesToProcess[i];
+      if (!file.content) {
+        console.warn(`⚠️ Skipping ${file.path || file} — no content`);
+        continue;
+      }
       console.log(`Ingesting file ${i + 1}/${filesToProcess.length}: ${file.path}`);
 
       // Rate-limit backoff: wait if we recently hit a 429
@@ -236,8 +241,9 @@ async function ingest(repoId, files) {
       if (ingested) nodesCreated++;
     }
 
-    // Invalidate cache since we added new data
-    await GraphCache.deleteOne({ repoId });
+    if (!preserveGraphCache) {
+      await GraphCache.deleteOne({ repoId });
+    }
 
     return { success: true, nodesCreated, skipped };
   } catch (err) {
@@ -247,13 +253,39 @@ async function ingest(repoId, files) {
 }
 
 /**
+ * Raw recall from Cognee without LLM synthesis (for PR analysis / grounding).
+ */
+async function recall(repoId, question) {
+  try {
+    const response = await axios.post(`${COGNEE_URL}/api/v1/recall`, {
+      query: question,
+      datasets: [repoId],
+    }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 60000,
+    });
+
+    const results = response.data;
+    if (!Array.isArray(results) || results.length === 0) {
+      return { success: true, context: '', rawResults: [] };
+    }
+
+    const context = results.map((r) => r.text).filter(Boolean).join('\n\n');
+    return { success: true, context, rawResults: results };
+  } catch (err) {
+    console.error('❌ Cognee recall failed:', err.message);
+    return { success: false, error: err.message, context: '', rawResults: [] };
+  }
+}
+
+/**
  * Semantic search over the Cognee graph for a given repository.
  *
  * @param {string} repoId   - Unique repository identifier.
  * @param {string} question  - Natural-language query.
- * @returns {Promise<{success: boolean, answer?: string, rawResults?: Array, error?: string}>}
+ * @param {{ skipSynthesis?: boolean }} options
  */
-async function query(repoId, question) {
+async function query(repoId, question, options = {}) {
   try {
     const response = await axios.post(`${COGNEE_URL}/api/v1/recall`, {
       query: question,
@@ -273,6 +305,11 @@ async function query(repoId, question) {
     }
 
     const context = results.map(r => r.text).filter(Boolean).join('\n\n');
+
+    if (options.skipSynthesis) {
+      return { success: true, answer: context, rawResults: results };
+    }
+
     const answer = await synthesizeAnswer(context, question);
     return { success: true, answer, rawResults: results };
   } catch (err) {
@@ -422,4 +459,4 @@ async function updateFromPR(repoId, changedFiles, diff) {
   }
 }
 
-export { ingest, query, getGraphData, updateFromPR };
+export { ingest, query, recall, getGraphData, updateFromPR };
