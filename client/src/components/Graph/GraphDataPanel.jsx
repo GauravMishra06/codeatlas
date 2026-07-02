@@ -32,7 +32,8 @@ function groupNodes(nodes, query) {
   );
 }
 
-export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNode }) {
+export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNode, highlightedNodeIds = [] }) {
+  const highlightSet = new Set(highlightedNodeIds);
   const [activeTab, setActiveTab] = useState('nodes');
   const [query, setQuery] = useState('');
 
@@ -43,7 +44,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
     return edges.filter((edge) => {
       const sourceName = typeof edge.source === 'object' ? edge.source?.name : edge.source;
       const targetName = typeof edge.target === 'object' ? edge.target?.name : edge.target;
-      const searchable = [edge.label, sourceName, targetName]
+      const searchable = [edge.label, edge.type, sourceName, targetName]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -60,15 +61,15 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
   }, [nodes]);
 
   return (
-    <div className="h-full flex flex-col bg-atlas-card/40">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-atlas-border/80 bg-atlas-card/80 backdrop-blur-sm">
+    <div className="h-full flex flex-col bg-atlas-card/40 min-h-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-atlas-border/80 bg-atlas-card/80 backdrop-blur-sm">
         <div>
           <h3 className="text-sm font-semibold text-atlas-text">Data Explorer</h3>
           <p className="text-xs text-atlas-muted mt-0.5">
             {nodes.length} nodes · {edges.length} edges
           </p>
         </div>
-        <div className="flex gap-2 text-[11px] text-atlas-muted">
+        <div className="flex gap-2 text-[11px] text-atlas-muted flex-wrap justify-end max-w-[50%]">
           {Object.entries(typeCounts).map(([type, count]) => (
             <span key={type} className="px-2 py-1 rounded-full bg-atlas-bg border border-atlas-border">
               {type}: {count}
@@ -77,7 +78,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
         </div>
       </div>
 
-      <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+      <div className="px-3 pt-2.5 pb-2 flex items-center gap-2 flex-wrap">
         <div className="flex flex-1 rounded-lg border border-atlas-border bg-atlas-bg px-3 py-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-atlas-muted mt-0.5 flex-shrink-0">
             <circle cx="11" cy="11" r="7" />
@@ -91,7 +92,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
           />
         </div>
 
-        <div className="inline-flex rounded-lg border border-atlas-border bg-atlas-bg p-1">
+        <div className="inline-flex rounded-lg border border-atlas-border bg-atlas-bg p-1 flex-shrink-0">
           {['nodes', 'edges'].map((tab) => (
             <button
               key={tab}
@@ -108,9 +109,9 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden px-4 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
         {activeTab === 'nodes' ? (
-          <div className="h-full overflow-y-auto pr-1 space-y-4">
+          <div className="pr-1 space-y-3">
             {groupedNodes.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-atlas-muted">
                 No nodes match your search.
@@ -118,7 +119,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
             ) : (
               groupedNodes.map(({ type, items }) => (
                 <section key={type}>
-                  <div className="flex items-center gap-2 mb-2 text-xs font-semibold uppercase tracking-wider text-atlas-muted">
+                  <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold uppercase tracking-wider text-atlas-muted">
                     <span
                       className="w-2.5 h-2.5 rounded-full"
                       style={{ backgroundColor: NODE_COLORS[type] || '#8B949E' }}
@@ -132,22 +133,24 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
                       <button
                         key={node.id}
                         onClick={() => onSelectNode(node)}
-                        className={`w-full text-left rounded-xl border px-3 py-3 transition-colors ${
+                        className={`w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
                           selectedNode?.id === node.id
                             ? 'bg-atlas-blue/10 border-atlas-blue/30'
+                            : highlightSet.has(node.id)
+                            ? 'bg-atlas-yellow/10 border-atlas-yellow/30'
                             : 'bg-atlas-bg border-atlas-border hover:border-atlas-blue/20'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-atlas-text truncate">
+                            <div className="text-sm font-medium text-atlas-text truncate leading-5">
                               {node.name}
                             </div>
-                            <div className="mt-1 text-xs text-atlas-muted font-mono truncate">
+                            <div className="mt-0.5 text-[11px] text-atlas-muted font-mono truncate">
                               {node.filePath || node.description || node.id}
                             </div>
                           </div>
-                          <span className="flex-shrink-0 text-[11px] px-2 py-1 rounded-full bg-atlas-card border border-atlas-border text-atlas-muted uppercase">
+                          <span className="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-atlas-card border border-atlas-border text-atlas-muted uppercase">
                             {node.type}
                           </span>
                         </div>
@@ -159,7 +162,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
             )}
           </div>
         ) : (
-          <div className="h-full overflow-y-auto pr-1 space-y-2">
+          <div className="pr-1 space-y-2">
             {filteredEdges.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-atlas-muted">
                 No edges match your search.
@@ -172,7 +175,7 @@ export default function GraphDataPanel({ nodes, edges, selectedNode, onSelectNod
                 return (
                   <div key={`${edge.source}-${edge.target}-${index}`} className="rounded-xl border border-atlas-border bg-atlas-bg px-3 py-3">
                     <div className="text-xs font-semibold text-atlas-blue uppercase tracking-wider mb-1">
-                      {edge.label || 'Relationship'}
+                      {edge.label || edge.type || 'Relationship'}
                     </div>
                     <div className="text-sm text-atlas-text truncate">
                       {sourceName} → {targetName}

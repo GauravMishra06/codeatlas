@@ -17,7 +17,7 @@ const NODE_COLORS = {
  *
  * @param {{ nodes: Array, edges: Array, onNodeClick: Function, config: object }} props
  */
-export default function CodeGraph({ nodes, edges, onNodeClick, config }) {
+export default function CodeGraph({ nodes, edges, onNodeClick, config, highlightedNodeIds, changedNodeIds }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -204,7 +204,16 @@ export default function CodeGraph({ nodes, edges, onNodeClick, config }) {
         .attr("r", 8)
         .attr("stroke-width", 2)
         .attr("stroke-opacity", 0.3)
-        .attr("stroke", d => NODE_COLORS[d.data.type] || '#8B949E');
+        .attr("fill", (d) => {
+          if (changedNodeIds?.includes(d.data.id)) return '#F78166';
+          if (highlightedNodeIds?.includes(d.data.id)) return '#E3B341';
+          return (d._children && !d.children) ? (NODE_COLORS[d.data.type] || '#8B949E') : '#161B22';
+        })
+        .attr("stroke", (d) => {
+          if (changedNodeIds?.includes(d.data.id)) return '#F78166';
+          if (highlightedNodeIds?.includes(d.data.id)) return '#E3B341';
+          return NODE_COLORS[d.data.type] || '#8B949E';
+        });
 
       if (config.showLabels) {
         nodeEnter.append("text")
@@ -227,7 +236,11 @@ export default function CodeGraph({ nodes, edges, onNodeClick, config }) {
         
       // Fill the circle completely if the node is closed (has hidden children)
       nodeUpdate.select("circle")
-        .attr("fill", d => (d._children && !d.children) ? (NODE_COLORS[d.data.type] || '#8B949E') : '#161B22');
+        .attr("fill", d => {
+          if (changedNodeIds?.includes(d.data.id)) return '#F78166';
+          if (highlightedNodeIds?.includes(d.data.id)) return '#E3B341';
+          return (d._children && !d.children) ? (NODE_COLORS[d.data.type] || '#8B949E') : '#161B22';
+        });
 
       // Exit nodes
       node.exit().transition(transition).remove()
@@ -265,7 +278,7 @@ export default function CodeGraph({ nodes, edges, onNodeClick, config }) {
 
     // Cleanup
     return () => d3.select('.graph-tooltip').classed('visible', false);
-  }, [nodes, edges, config, activeFilters, onNodeClick]);
+  }, [nodes, edges, config, activeFilters, onNodeClick, highlightedNodeIds, changedNodeIds]);
 
   return (
     <div ref={containerRef} className="w-full h-full min-h-[500px] relative">

@@ -4,6 +4,9 @@ import {
   listRepos,
   connectRepo,
   getGraph,
+  getOnboarding,
+  getStats,
+  getNodeCode,
   listPRs,
   deleteRepo,
 } from '../controllers/repoController.js';
@@ -31,11 +34,12 @@ router.post('/connect', authMiddleware, connectRepo);
  */
 router.get('/:id/graph', authMiddleware, getGraph);
 
-/**
- * @route GET /api/repos/:id/prs
- * @desc  List all PR events for a repository
- * @access Protected
- */
+router.get('/:id/onboarding', authMiddleware, getOnboarding);
+
+router.get('/:id/stats', authMiddleware, getStats);
+
+router.get('/:id/node/:nodeId/code', authMiddleware, getNodeCode);
+
 router.get('/:id/prs', authMiddleware, listPRs);
 
 /**

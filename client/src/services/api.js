@@ -71,8 +71,24 @@ export async function connectRepo(repoFullName) {
  * @param {string} repoId - MongoDB ObjectId of the repo.
  * @returns {Promise<{nodes: Array, edges: Array}>}
  */
-export async function getGraph(repoId) {
-  const { data } = await api.get(`/api/repos/${repoId}/graph`);
+export async function getGraph(repoId, relations) {
+  const params = relations ? { relations } : {};
+  const { data } = await api.get(`/api/repos/${repoId}/graph`, { params });
+  return data;
+}
+
+export async function getOnboarding(repoId) {
+  const { data } = await api.get(`/api/repos/${repoId}/onboarding`);
+  return data;
+}
+
+export async function getStats(repoId) {
+  const { data } = await api.get(`/api/repos/${repoId}/stats`);
+  return data;
+}
+
+export async function getNodeCode(repoId, nodeId) {
+  const { data } = await api.get(`/api/repos/${repoId}/node/${encodeURIComponent(nodeId)}/code`);
   return data;
 }
 

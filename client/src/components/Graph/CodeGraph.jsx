@@ -7,7 +7,7 @@ import FlowchartGraph from './FlowchartGraph';
  * Provides a UI toggle to switch between the Clustered Force layout and the Flowchart layout.
  */
 export default function CodeGraph(props) {
-  const [layout, setLayout] = useState('flowchart'); // 'flowchart' or 'force'
+  const [layout, setLayout] = useState('flowchart');
 
   return (
     <div className="w-full h-full relative">
