@@ -8,6 +8,7 @@ import LoadingSpinner from '../components/Shared/LoadingSpinner';
 import ErrorState from '../components/Shared/ErrorState';
 import CodeGraph from '../components/Graph/CodeGraph';
 import GraphControls from '../components/Graph/GraphControls';
+import GraphDataPanel from '../components/Graph/GraphDataPanel';
 import PRList from '../components/PRPanel/PRList';
 import ChatInterface from '../components/Chat/ChatInterface';
 
@@ -63,7 +64,7 @@ export default function RepoView() {
 
       <main className="flex-1 flex overflow-hidden">
         {/* Left Panel — Graph */}
-        <div className="w-[60%] relative border-r border-atlas-border">
+        <div className="w-[60%] min-w-0 border-r border-atlas-border flex flex-col bg-atlas-bg/80">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <LoadingSpinner size="lg" label="Loading graph..." />
@@ -80,69 +81,80 @@ export default function RepoView() {
           )}
 
           {!isLoading && !isError && (
-            <>
-              <CodeGraph
-                nodes={nodes}
-                edges={edges}
-                onNodeClick={setSelectedNode}
-                config={graphConfig}
-              />
-              <GraphControls config={graphConfig} onChange={setGraphConfig} />
+            <div className="flex flex-col h-full min-h-0">
+              <div className="relative flex-[1.15] min-h-[440px] border-b border-atlas-border">
+                <CodeGraph
+                  nodes={nodes}
+                  edges={edges}
+                  onNodeClick={setSelectedNode}
+                  config={graphConfig}
+                />
+                <GraphControls config={graphConfig} onChange={setGraphConfig} />
 
-              {/* Node info tooltip */}
-              {selectedNode && (
-                <div className="absolute bottom-4 left-4 right-4 max-w-sm animate-fade-in">
-                  <div className="p-4 rounded-xl bg-atlas-card border border-atlas-border shadow-xl">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-2 ${
-                            selectedNode.type === 'File'
-                              ? 'bg-atlas-blue/10 text-atlas-blue'
-                              : selectedNode.type === 'Module'
-                              ? 'bg-atlas-green/10 text-atlas-green'
-                              : selectedNode.type === 'Function'
-                              ? 'bg-atlas-purple/10 text-atlas-purple'
-                              : 'bg-atlas-yellow/10 text-atlas-yellow'
-                          }`}
-                        >
-                          {selectedNode.type}
-                        </span>
-                        <h3 className="text-sm font-semibold text-atlas-text">
-                          {selectedNode.name}
-                        </h3>
-                        <p className="text-xs text-atlas-muted mt-1 font-mono">
-                          {selectedNode.filePath}
-                        </p>
-                        {selectedNode.description && (
-                          <p className="text-xs text-atlas-muted mt-1">
-                            {selectedNode.description}
+                {/* Node info tooltip */}
+                {selectedNode && (
+                  <div className="absolute bottom-4 left-4 right-4 max-w-sm animate-fade-in">
+                    <div className="p-4 rounded-xl bg-atlas-card border border-atlas-border shadow-xl">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-2 ${
+                              selectedNode.type === 'File'
+                                ? 'bg-atlas-blue/10 text-atlas-blue'
+                                : selectedNode.type === 'Module'
+                                ? 'bg-atlas-green/10 text-atlas-green'
+                                : selectedNode.type === 'Function'
+                                ? 'bg-atlas-purple/10 text-atlas-purple'
+                                : 'bg-atlas-yellow/10 text-atlas-yellow'
+                            }`}
+                          >
+                            {selectedNode.type}
+                          </span>
+                          <h3 className="text-sm font-semibold text-atlas-text">
+                            {selectedNode.name}
+                          </h3>
+                          <p className="text-xs text-atlas-muted mt-1 font-mono">
+                            {selectedNode.filePath}
                           </p>
-                        )}
+                          {selectedNode.description && (
+                            <p className="text-xs text-atlas-muted mt-1">
+                              {selectedNode.description}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setSelectedNode(null)}
+                          className="text-atlas-muted hover:text-atlas-text transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
                       </div>
-                      <button
-                        onClick={() => setSelectedNode(null)}
-                        className="text-atlas-muted hover:text-atlas-text transition-colors"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M18 6L6 18M6 6l12 12" />
-                        </svg>
-                      </button>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Graph stats */}
-              <div className="absolute top-4 left-4 flex gap-2">
-                <span className="px-2.5 py-1 rounded-lg bg-atlas-card/80 border border-atlas-border text-xs text-atlas-muted backdrop-blur-sm">
-                  {nodes.length} nodes
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-atlas-card/80 border border-atlas-border text-xs text-atlas-muted backdrop-blur-sm">
-                  {edges.length} edges
-                </span>
+                {/* Graph stats */}
+                <div className="absolute top-4 left-4 flex gap-2">
+                  <span className="px-2.5 py-1 rounded-lg bg-atlas-card/80 border border-atlas-border text-xs text-atlas-muted backdrop-blur-sm">
+                    {nodes.length} nodes
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-atlas-card/80 border border-atlas-border text-xs text-atlas-muted backdrop-blur-sm">
+                    {edges.length} edges
+                  </span>
+                </div>
               </div>
-            </>
+
+              <div className="flex-[0.85] min-h-[260px] overflow-hidden">
+                <GraphDataPanel
+                  nodes={nodes}
+                  edges={edges}
+                  selectedNode={selectedNode}
+                  onSelectNode={setSelectedNode}
+                />
+              </div>
+            </div>
           )}
         </div>
 
