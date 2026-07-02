@@ -138,11 +138,10 @@ export default function CodeGraph({ nodes, edges, onNodeClick, config }) {
       d3.select('body').append('div').attr('class', 'graph-tooltip');
     }
 
-    // Set initial collapse state: Only show Root's immediate children
+    // Start expanded so the full repository structure is visible on load.
     rootHierarchy.descendants().forEach((d) => {
       d.id = d.data.id;
-      d._children = d.children; 
-      if (d.depth > 0) d.children = null; 
+      d._children = d.children;
     });
 
     // Initial positioning state
