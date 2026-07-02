@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { queryCodebase } from '../../services/api';
 import ChatMessage from './ChatMessage';
@@ -10,17 +10,18 @@ import LoadingSpinner from '../Shared/LoadingSpinner';
  *
  * @param {{ repoId: string }} props
  */
-export default function ChatInterface({ repoId }) {
+export default function ChatInterface({ repoId, onRegisterAsk }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
   const storageKey = `codeatlas_chat:${repoId || 'unknown'}`;
 
   const starterPrompts = [
     'Explain the auth flow',
-    'What changed last week?',
-    'Which modules are most connected?',
-    'What does the main entry point do?',
+    'What modules import the API layer?',
+    'Which functions are most connected?',
+    'Give me a 5-minute onboarding summary',
   ];
 
   /**
@@ -78,21 +79,29 @@ export default function ChatInterface({ repoId }) {
     },
   });
 
-  /**
-   * Send a message to the codebase query API.
-   * @param {string} text - The question to ask.
-   */
-  function sendMessage(text) {
+  const sendMessage = useCallback((text) => {
     const question = text.trim();
     if (!question) return;
 
-    // Add user message
     setMessages((prev) => [...prev, { type: 'user', text: question }]);
     setInput('');
-
-    // Send query
     mutation.mutate(question);
-  }
+  }, [mutation]);
+
+  useEffect(() => {
+    onRegisterAsk?.(sendMessage);
+  }, [onRegisterAsk, sendMessage]);
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   /**
    * Handle form submission.
@@ -158,10 +167,11 @@ export default function ChatInterface({ repoId }) {
       <div className="p-4 border-t border-atlas-border">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about your codebase..."
+            placeholder="Ask about your codebase... (press / to focus)"
             disabled={mutation.isPending}
             className="flex-1 px-4 py-2.5 bg-atlas-card border border-atlas-border rounded-xl text-sm text-atlas-text placeholder-atlas-muted/50 focus:outline-none focus:border-atlas-blue/50 focus:ring-1 focus:ring-atlas-blue/20 transition-all disabled:opacity-50"
           />

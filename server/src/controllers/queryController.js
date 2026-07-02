@@ -1,17 +1,40 @@
 import Repo from '../models/Repo.js';
+import GraphCache from '../models/GraphCache.js';
 import * as cognee from '../services/cognee.js';
-import { fetchRepoTree } from '../services/github.js';
-import User from '../models/User.js';
 import { analyzePR } from '../services/analyzer.js';
 import { GoogleGenAI } from '@google/genai';
 
 /**
+ * Extract file paths mentioned in Cognee recall text.
+ */
+function extractFilePathsFromRecall(rawResults, graphNodes) {
+  const paths = new Set();
+  const fileNodes = graphNodes.filter((n) => n.type === 'File' && n.filePath);
+
+  for (const result of rawResults || []) {
+    const text = result.text || '';
+    for (const node of fileNodes) {
+      if (text.includes(node.filePath) || text.includes(node.name)) {
+        paths.add(node.filePath);
+      }
+    }
+  }
+
+  return [...paths].slice(0, 8).map((filePath) => {
+    const node = fileNodes.find((n) => n.filePath === filePath);
+    return {
+      id: node?.id,
+      name: node?.name || filePath.split('/').pop(),
+      filePath,
+      type: 'File',
+    };
+  });
+}
+
+/**
  * Query the codebase using natural language.
- * Searches the Cognee graph for relevant nodes, then passes
- * the context to Claude for a human-readable answer.
  *
  * @route POST /api/cognee/query
- * @body {{ repoId: string, question: string }}
  */
 async function queryCognee(req, res) {
   try {
@@ -24,28 +47,29 @@ async function queryCognee(req, res) {
       });
     }
 
-    // Verify repo belongs to user
     const repo = await Repo.findOne({ _id: repoId, userId: req.userId });
     if (!repo) {
       return res.status(404).json({ success: false, error: 'Repository not found' });
     }
 
-    // Search Cognee graph
-    const cogneeResult = await cognee.query(repo.repoId, question);
+    const cached = await GraphCache.findOne({ repoId: repo.repoId });
+    const graphNodes = cached?.nodes || [];
 
-    // Build prompt for Claude
-    const prompt = `You are CodeAtlas, an AI assistant that helps developers understand their codebase. 
-Answer the following question about the repository "${repo.fullName}" using the context from the code graph below.
+    const cogneeResult = await cognee.recall(repo.repoId, question);
+    const context = cogneeResult.success ? cogneeResult.context : '';
 
-## Code Graph Context:
-${cogneeResult.success && cogneeResult.answer ? cogneeResult.answer : 'No context available. The repository may not be fully ingested yet.'}
+    const prompt = `You are CodeAtlas, an AI assistant helping developers understand their codebase "${repo.fullName}".
+
+Answer using ONLY the context below. Cite files as \`path/to/file.ts\` when referencing code.
+
+## Code Context:
+${context || 'No context available — repository may still be ingesting.'}
 
 ## Question:
 ${question}
 
-Provide a clear, concise answer. Reference specific files and functions when possible. If the context is insufficient, say so honestly.`;
+Be clear and concise. Reference specific files and functions when possible.`;
 
-    // Call Gemini API
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     let answer = 'Unable to generate answer.';
 
@@ -53,19 +77,15 @@ Provide a clear, concise answer. Reference specific files and functions when pos
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
-        config: { maxOutputTokens: 1000 }
+        config: { maxOutputTokens: 1000 },
       });
       answer = response.text || answer;
     } catch (apiErr) {
       console.error('❌ Gemini API error:', apiErr.message);
+      answer = context || answer;
     }
 
-    // Extract related nodes for display (now using rawResults)
-    const relatedNodes = (cogneeResult.rawResults || []).map((n, idx) => ({
-      name: `Result ${idx+1}`,
-      filePath: n.source || 'Cognee Graph',
-      type: n.kind || 'search_result',
-    }));
+    const relatedNodes = extractFilePathsFromRecall(cogneeResult.rawResults, graphNodes);
 
     res.json({ success: true, answer, relatedNodes });
   } catch (err) {
@@ -74,13 +94,6 @@ Provide a clear, concise answer. Reference specific files and functions when pos
   }
 }
 
-/**
- * Ingest files into the Cognee graph for a repository.
- * Typically called internally after connecting a repo.
- *
- * @route POST /api/cognee/ingest
- * @body {{ repoId: string, files: Array<{path, content, language}> }}
- */
 async function ingestFiles(req, res) {
   try {
     const { repoId, files } = req.body;
@@ -92,12 +105,11 @@ async function ingestFiles(req, res) {
       });
     }
 
-    const result = await cognee.ingest(repoId, files);
+    const result = await cognee.ingest(repoId, files, { preserveGraphCache: true });
 
     res.json({
       success: true,
       nodesCreated: result.nodesCreated,
-      edgesCreated: result.edgesCreated,
     });
   } catch (err) {
     console.error('❌ ingestFiles failed:', err.message);
@@ -105,13 +117,6 @@ async function ingestFiles(req, res) {
   }
 }
 
-/**
- * Analyze a PR using the Cognee graph and Claude API.
- * Typically called internally from the webhook handler.
- *
- * @route POST /api/cognee/analyze-pr
- * @body {{ repoId: string, prNumber: number, diff: string }}
- */
 async function analyzePREndpoint(req, res) {
   try {
     const { repoId, prNumber, diff } = req.body;
@@ -129,6 +134,7 @@ async function analyzePREndpoint(req, res) {
     res.json({
       success: true,
       impactedModules: result.impactedModules,
+      impactedNodeIds: result.impactedNodeIds,
       relatedHistory: result.relatedHistory,
       review: result.review,
     });

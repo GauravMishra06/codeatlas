@@ -5,73 +5,19 @@ import PREvent from '../models/PREvent.js';
 import User from '../models/User.js';
 import { fetchRepoTree } from '../services/github.js';
 import * as cognee from '../services/cognee.js';
+import {
+  buildCodeGraph,
+  computeContextDebt,
+  buildOnboardingTour,
+} from '../services/codeGraph.js';
 
-function buildRepoGraph(files, repoId, repoName) {
-  const nodes = [];
-  const edges = [];
-  const nodeMap = new Map();
-
-  const rootNode = {
-    id: `repo:${repoId}`,
-    name: repoName,
-    type: 'Module',
-    filePath: '/',
-    description: 'Repository root',
-  };
-
-  nodes.push(rootNode);
-  nodeMap.set(rootNode.id, rootNode);
-
-  const ensureNode = (id, node) => {
-    if (!nodeMap.has(id)) {
-      nodeMap.set(id, node);
-      nodes.push(node);
-    }
-    return nodeMap.get(id);
-  };
-
-  const addEdge = (source, target, type = 'contains') => {
-    edges.push({ source, target, type });
-  };
-
-  for (const file of files) {
-    const parts = file.path.split('/');
-    let parentId = rootNode.id;
-    let currentPath = '';
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-      const folderId = `folder:${repoId}:${currentPath}`;
-      const folderNode = ensureNode(folderId, {
-        id: folderId,
-        name: currentPath,
-        type: 'Module',
-        filePath: `${currentPath}/`,
-        description: 'Folder',
-      });
-
-      if (!edges.some((edge) => edge.source === parentId && edge.target === folderNode.id)) {
-        addEdge(parentId, folderNode.id);
-      }
-
-      parentId = folderNode.id;
-    }
-
-    const fileId = `file:${repoId}:${file.path}`;
-    const fileNode = ensureNode(fileId, {
-      id: fileId,
-      name: parts[parts.length - 1],
-      type: 'File',
-      filePath: file.path,
-      description: file.language ? `${file.language} file` : 'File',
-    });
-
-    if (!edges.some((edge) => edge.source === parentId && edge.target === fileNode.id)) {
-      addEdge(parentId, fileNode.id);
-    }
-  }
-
-  return { nodes, edges };
+/**
+ * Emit socket events to both GitHub repoId and MongoDB _id rooms.
+ */
+function emitToRepo(io, repo, event, payload) {
+  if (!io || !repo) return;
+  io.to(`repo:${repo.repoId}`).emit(event, payload);
+  io.to(`repo:${repo._id}`).emit(event, payload);
 }
 
 /**
@@ -105,11 +51,8 @@ async function listRepos(req, res) {
 
 /**
  * Connect a new GitHub repository.
- * Fetches repo metadata from GitHub, saves it to MongoDB,
- * and triggers the async ingestion pipeline.
  *
  * @route POST /api/repos/connect
- * @body {{ repoFullName: string }}
  */
 async function connectRepo(req, res) {
   try {
@@ -124,20 +67,14 @@ async function connectRepo(req, res) {
 
     const [owner, repoName] = repoFullName.split('/');
 
-    // Get user's access token
     const user = await User.findById(req.userId);
     if (!user) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
 
-    // Fetch repo details from GitHub
     const octokit = new Octokit({ auth: user.accessToken });
-    const { data: ghRepo } = await octokit.rest.repos.get({
-      owner,
-      repo: repoName,
-    });
+    const { data: ghRepo } = await octokit.rest.repos.get({ owner, repo: repoName });
 
-    // Upsert in MongoDB
     const repo = await Repo.findOneAndUpdate(
       { repoId: String(ghRepo.id) },
       {
@@ -150,7 +87,6 @@ async function connectRepo(req, res) {
       { upsert: true, new: true }
     );
 
-    // Respond immediately — ingestion runs in the background
     res.json({
       success: true,
       repo: {
@@ -161,7 +97,6 @@ async function connectRepo(req, res) {
       },
     });
 
-    // Trigger async ingestion (fire-and-forget)
     runIngestion(owner, repoName, user.accessToken, repo).catch((err) => {
       console.error('❌ Background ingestion failed:', err.message);
     });
@@ -177,49 +112,53 @@ async function connectRepo(req, res) {
 }
 
 /**
- * Background ingestion pipeline.
- * Fetches all code files, builds the repository graph cache, ingests them into Cognee,
- * and updates the repo record.
- *
- * @param {string} owner - Repo owner.
- * @param {string} repoName - Repo name.
- * @param {string} accessToken - GitHub access token.
- * @param {object} repo - Mongoose Repo document.
+ * Background ingestion: build canonical code graph + Cognee semantic layer.
  */
 async function runIngestion(owner, repoName, accessToken, repo) {
   try {
     console.log(`📦 Starting ingestion for ${owner}/${repoName}...`);
 
-    // Fetch all code files from GitHub
     const files = await fetchRepoTree(owner, repoName, accessToken);
     console.log(`📄 Fetched ${files.length} files from ${owner}/${repoName}`);
 
-    const graphData = buildRepoGraph(files, repo.repoId, repo.fullName || repo.name);
+    const graphData = buildCodeGraph(files, repo.repoId, repo.fullName || repo.name);
+    const contextDebt = computeContextDebt(files, graphData, 0);
+
     await GraphCache.findOneAndUpdate(
       { repoId: repo.repoId },
-      { repoId: repo.repoId, nodes: graphData.nodes, edges: graphData.edges, updatedAt: new Date() },
+      {
+        repoId: repo.repoId,
+        nodes: graphData.nodes,
+        edges: graphData.edges,
+        contextDebt,
+        updatedAt: new Date(),
+      },
       { upsert: true }
     );
 
-    // Ingest into Cognee
-    const result = await cognee.ingest(repo.repoId, files);
-    console.log(`🧠 Ingested: ${result.nodesCreated} nodes, ${result.edgesCreated} edges`);
+    const result = await cognee.ingest(repo.repoId, files, { preserveGraphCache: true });
+    console.log(`🧠 Cognee ingested: ${result.nodesCreated} files`);
 
-    // Update repo record
+    const updatedDebt = computeContextDebt(files, graphData, result.nodesCreated);
+
+    await GraphCache.findOneAndUpdate(
+      { repoId: repo.repoId },
+      { contextDebt: updatedDebt, updatedAt: new Date() }
+    );
+
     await Repo.findByIdAndUpdate(repo._id, {
       isIngested: true,
-      nodeCount: result.nodesCreated,
+      nodeCount: graphData.nodes.length,
       lastAnalyzed: new Date(),
     });
 
-    // Emit socket event if io is available
     const io = global.__io;
-    if (io) {
-      io.to(`repo:${repo.repoId}`).emit('repo:ingested', {
-        repoId: repo.repoId,
-        nodeCount: result.nodesCreated,
-      });
-    }
+    emitToRepo(io, repo, 'repo:ingested', {
+      repoId: repo.repoId,
+      mongoId: repo._id,
+      nodeCount: graphData.nodes.length,
+      contextDebt: updatedDebt.overall,
+    });
 
     console.log(`✅ Ingestion complete for ${owner}/${repoName}`);
   } catch (err) {
@@ -228,10 +167,10 @@ async function runIngestion(owner, repoName, accessToken, repo) {
 }
 
 /**
- * Get the graph data for a repository.
- * Returns cached data if available, otherwise rebuilds it from the GitHub tree.
+ * Get graph data with optional relation filter.
  *
  * @route GET /api/repos/:id/graph
+ * @query relations - comma-separated edge types (contains,imports,tests)
  */
 async function getGraph(req, res) {
   try {
@@ -240,46 +179,58 @@ async function getGraph(req, res) {
       return res.status(404).json({ success: false, error: 'Repository not found' });
     }
 
-    // Check cache first
+    const relationFilter = req.query.relations
+      ? req.query.relations.split(',').map((r) => r.trim())
+      : null;
+
     const cached = await GraphCache.findOne({ repoId: repo.repoId });
     const hasRenderableNodes = cached
       && Array.isArray(cached.nodes)
       && cached.nodes.length > 1
       && cached.nodes.some((node) => node.type === 'File');
 
-    if (hasRenderableNodes) {
-      return res.json({
-        success: true,
-        nodes: cached.nodes,
-        edges: cached.edges,
-      });
+    let nodes = cached?.nodes || [];
+    let edges = cached?.edges || [];
+    let contextDebt = cached?.contextDebt || null;
+
+    if (!hasRenderableNodes) {
+      const user = await User.findById(req.userId);
+      if (!user) {
+        return res.status(401).json({ success: false, error: 'User not found' });
+      }
+
+      const [owner, repoName] = repo.fullName.split('/');
+      const files = await fetchRepoTree(owner, repoName, user.accessToken);
+      const graphData = buildCodeGraph(files, repo.repoId, repo.fullName);
+      contextDebt = computeContextDebt(files, graphData, 0);
+
+      await GraphCache.findOneAndUpdate(
+        { repoId: repo.repoId },
+        {
+          repoId: repo.repoId,
+          nodes: graphData.nodes,
+          edges: graphData.edges,
+          contextDebt,
+          updatedAt: new Date(),
+        },
+        { upsert: true }
+      );
+
+      nodes = graphData.nodes;
+      edges = graphData.edges;
     }
 
-    const user = await User.findById(req.userId);
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'User not found' });
+    if (relationFilter) {
+      edges = edges.filter((e) => relationFilter.includes(e.type));
     }
-
-    const [owner, repoName] = repo.fullName.split('/');
-    const files = await fetchRepoTree(owner, repoName, user.accessToken);
-    const graphData = buildRepoGraph(files, repo.repoId, repo.fullName);
-
-    // Save to cache
-    await GraphCache.findOneAndUpdate(
-      { repoId: repo.repoId },
-      {
-        repoId: repo.repoId,
-        nodes: graphData.nodes,
-        edges: graphData.edges,
-        updatedAt: new Date(),
-      },
-      { upsert: true }
-    );
 
     res.json({
       success: true,
-      nodes: graphData.nodes,
-      edges: graphData.edges,
+      nodes,
+      edges,
+      contextDebt,
+      repoId: repo.repoId,
+      fullName: repo.fullName,
     });
   } catch (err) {
     console.error('❌ getGraph failed:', err.message);
@@ -288,7 +239,139 @@ async function getGraph(req, res) {
 }
 
 /**
- * List all PR events for a repository.
+ * Get onboarding tour steps for a repository.
+ *
+ * @route GET /api/repos/:id/onboarding
+ */
+async function getOnboarding(req, res) {
+  try {
+    const repo = await Repo.findById(req.params.id);
+    if (!repo) {
+      return res.status(404).json({ success: false, error: 'Repository not found' });
+    }
+
+    const cached = await GraphCache.findOne({ repoId: repo.repoId });
+    if (!cached?.nodes?.length) {
+      return res.json({
+        success: true,
+        tour: { title: repo.fullName, steps: [] },
+        message: 'Graph still building — try again shortly.',
+      });
+    }
+
+    const tour = buildOnboardingTour(
+      { nodes: cached.nodes, edges: cached.edges },
+      repo.fullName
+    );
+
+    res.json({ success: true, tour, contextDebt: cached.contextDebt });
+  } catch (err) {
+    console.error('❌ getOnboarding failed:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to build onboarding tour' });
+  }
+}
+
+/**
+ * Get context debt / coverage score.
+ *
+ * @route GET /api/repos/:id/stats
+ */
+async function getStats(req, res) {
+  try {
+    const repo = await Repo.findById(req.params.id);
+    if (!repo) {
+      return res.status(404).json({ success: false, error: 'Repository not found' });
+    }
+
+    const cached = await GraphCache.findOne({ repoId: repo.repoId });
+
+    res.json({
+      success: true,
+      nodeCount: cached?.nodes?.length || repo.nodeCount || 0,
+      edgeCount: cached?.edges?.length || 0,
+      contextDebt: cached?.contextDebt || null,
+      isIngested: repo.isIngested,
+      lastAnalyzed: repo.lastAnalyzed,
+    });
+  } catch (err) {
+    console.error('❌ getStats failed:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+}
+
+/**
+ * Get code snippet for a specific node.
+ *
+ * @route GET /api/repos/:id/node/:nodeId/code
+ */
+async function getNodeCode(req, res) {
+  try {
+    const repo = await Repo.findById(req.params.id);
+    if (!repo) {
+      return res.status(404).json({ success: false, error: 'Repository not found' });
+    }
+
+    const nodeId = decodeURIComponent(req.params.nodeId);
+    const cached = await GraphCache.findOne({ repoId: repo.repoId });
+    const node = cached?.nodes?.find((n) => n.id === nodeId);
+
+    if (!node) {
+      return res.status(404).json({ success: false, error: 'Node not found' });
+    }
+
+    if (node.codeSnippet) {
+      return res.json({
+        success: true,
+        node: {
+          id: node.id,
+          name: node.name,
+          filePath: node.filePath,
+          startLine: node.startLine,
+          endLine: node.endLine,
+          signature: node.signature,
+        },
+        code: node.codeSnippet,
+      });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user || !node.filePath) {
+      return res.status(404).json({ success: false, error: 'Code not available' });
+    }
+
+    const [owner, repoName] = repo.fullName.split('/');
+    const files = await fetchRepoTree(owner, repoName, user.accessToken);
+    const file = files.find((f) => f.path === node.filePath);
+
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'File not found' });
+    }
+
+    const lines = file.content.split('\n');
+    const start = node.startLine ? node.startLine - 1 : 0;
+    const end = node.endLine || Math.min(start + 40, lines.length);
+    const code = lines.slice(start, end).join('\n');
+
+    res.json({
+      success: true,
+      node: {
+        id: node.id,
+        name: node.name,
+        filePath: node.filePath,
+        startLine: node.startLine || 1,
+        endLine: end,
+        signature: node.signature,
+      },
+      code,
+    });
+  } catch (err) {
+    console.error('❌ getNodeCode failed:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch code' });
+  }
+}
+
+/**
+ * List PR events for a repository.
  *
  * @route GET /api/repos/:id/prs
  */
@@ -311,7 +394,10 @@ async function listPRs(req, res) {
         title: pr.title,
         author: pr.author,
         changedFiles: pr.changedFiles,
+        changedFunctions: pr.changedFunctions,
         impactedModules: pr.impactedModules,
+        impactedNodeIds: pr.impactedNodeIds,
+        changedNodeIds: pr.changedNodeIds,
         review: pr.review,
         status: pr.status,
         createdAt: pr.createdAt,
@@ -335,7 +421,6 @@ async function deleteRepo(req, res) {
       return res.status(404).json({ success: false, error: 'Repository not found' });
     }
 
-    // Clean up related data
     await GraphCache.deleteOne({ repoId: repo.repoId });
     await PREvent.deleteMany({ repoId: repo.repoId });
 
@@ -346,4 +431,13 @@ async function deleteRepo(req, res) {
   }
 }
 
-export { listRepos, connectRepo, getGraph, listPRs, deleteRepo };
+export {
+  listRepos,
+  connectRepo,
+  getGraph,
+  getOnboarding,
+  getStats,
+  getNodeCode,
+  listPRs,
+  deleteRepo,
+};

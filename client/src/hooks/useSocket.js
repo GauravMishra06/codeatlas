@@ -2,69 +2,61 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 
-/**
- * Custom hook for Socket.io real-time communication.
- * Connects to the backend, joins the repo room, and listens
- * for PR and ingestion events.
- *
- * @param {string} repoId - MongoDB ObjectId of the current repo.
- * @returns {{ socket: object|null, toast: string|null }}
- */
-export default function useSocket(repoId) {
+export default function useSocket(mongoId, githubRepoId, callbacks = {}) {
   const socketRef = useRef(null);
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
   const [toast, setToast] = useState(null);
+  const [lastPRImpact, setLastPRImpact] = useState(null);
   const queryClient = useQueryClient();
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-  /**
-   * Clear the toast message after a timeout.
-   */
   const showToast = useCallback((message, duration = 5000) => {
     setToast(message);
     setTimeout(() => setToast(null), duration);
   }, []);
 
   useEffect(() => {
-    if (!repoId) return;
+    if (!mongoId) return;
 
-    // Connect to Socket.io server
-    const socket = io(apiUrl, {
-      transports: ['websocket', 'polling'],
-    });
-
+    const socket = io(apiUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      // Join the repo-specific room
-      socket.emit('join:repo', repoId);
+      socket.emit('join:repo', mongoId);
+      if (githubRepoId) {
+        socket.emit('join:repo:dual', { mongoId, githubRepoId });
+      }
     });
 
-    // Listen for PR received events
     socket.on('pr:received', (data) => {
       showToast(`📥 PR #${data.prNumber} received: ${data.title}`);
     });
 
-    // Listen for PR analyzed events
     socket.on('pr:analyzed', (data) => {
-      showToast(`✅ PR #${data.prNumber} analyzed — ${data.impactedModules?.length || 0} modules impacted`);
-      // Refetch PRs and graph data
-      queryClient.invalidateQueries({ queryKey: ['prs', repoId] });
-      queryClient.invalidateQueries({ queryKey: ['graph', repoId] });
+      showToast(`✅ PR #${data.prNumber} analyzed — ${data.impactedModules?.length || 0} nodes in blast radius`);
+      setLastPRImpact({
+        prNumber: data.prNumber,
+        impactedNodeIds: data.impactedNodeIds || [],
+        changedNodeIds: data.changedNodeIds || [],
+      });
+      callbacksRef.current.onPRAnalyzed?.(data);
+      queryClient.invalidateQueries({ queryKey: ['prs', mongoId] });
+      queryClient.invalidateQueries({ queryKey: ['graph', mongoId] });
     });
 
-    // Listen for repo ingestion complete
     socket.on('repo:ingested', (data) => {
-      showToast(`🧠 Repository ingested — ${data.nodeCount} nodes created`);
-      queryClient.invalidateQueries({ queryKey: ['graph', repoId] });
+      showToast(`🧠 Repository mapped — ${data.nodeCount} nodes · ${data.contextDebt || '?'}% context coverage`);
+      queryClient.invalidateQueries({ queryKey: ['graph', mongoId] });
       queryClient.invalidateQueries({ queryKey: ['repos'] });
+      queryClient.invalidateQueries({ queryKey: ['stats', mongoId] });
     });
 
-    // Cleanup on unmount
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [repoId, apiUrl, queryClient, showToast]);
+  }, [mongoId, githubRepoId, apiUrl, queryClient, showToast]);
 
-  return { socket: socketRef.current, toast };
+  return { socket: socketRef.current, toast, lastPRImpact, clearPRImpact: () => setLastPRImpact(null) };
 }

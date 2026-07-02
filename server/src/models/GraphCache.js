@@ -19,10 +19,16 @@ const graphCacheSchema = new mongoose.Schema(
     nodes: {
       type: Array,
       default: [],
+      // Node: { id, name, type, filePath, startLine?, endLine?, codeSnippet?, signature?, source, description }
     },
     edges: {
       type: Array,
       default: [],
+      // Edge: { source, target, type, label, confidence?, importStatement? }
+    },
+    contextDebt: {
+      type: Object,
+      default: null,
     },
     updatedAt: {
       type: Date,
