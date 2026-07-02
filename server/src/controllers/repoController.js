@@ -6,6 +6,74 @@ import User from '../models/User.js';
 import { fetchRepoTree } from '../services/github.js';
 import * as cognee from '../services/cognee.js';
 
+function buildRepoGraph(files, repoId, repoName) {
+  const nodes = [];
+  const edges = [];
+  const nodeMap = new Map();
+
+  const rootNode = {
+    id: `repo:${repoId}`,
+    name: repoName,
+    type: 'Module',
+    filePath: '/',
+    description: 'Repository root',
+  };
+
+  nodes.push(rootNode);
+  nodeMap.set(rootNode.id, rootNode);
+
+  const ensureNode = (id, node) => {
+    if (!nodeMap.has(id)) {
+      nodeMap.set(id, node);
+      nodes.push(node);
+    }
+    return nodeMap.get(id);
+  };
+
+  const addEdge = (source, target, type = 'contains') => {
+    edges.push({ source, target, type });
+  };
+
+  for (const file of files) {
+    const parts = file.path.split('/');
+    let parentId = rootNode.id;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      const folderId = `folder:${repoId}:${currentPath}`;
+      const folderNode = ensureNode(folderId, {
+        id: folderId,
+        name: currentPath,
+        type: 'Module',
+        filePath: `${currentPath}/`,
+        description: 'Folder',
+      });
+
+      if (!edges.some((edge) => edge.source === parentId && edge.target === folderNode.id)) {
+        addEdge(parentId, folderNode.id);
+      }
+
+      parentId = folderNode.id;
+    }
+
+    const fileId = `file:${repoId}:${file.path}`;
+    const fileNode = ensureNode(fileId, {
+      id: fileId,
+      name: parts[parts.length - 1],
+      type: 'File',
+      filePath: file.path,
+      description: file.language ? `${file.language} file` : 'File',
+    });
+
+    if (!edges.some((edge) => edge.source === parentId && edge.target === fileNode.id)) {
+      addEdge(parentId, fileNode.id);
+    }
+  }
+
+  return { nodes, edges };
+}
+
 /**
  * List all repositories connected by the current user.
  *
@@ -110,7 +178,8 @@ async function connectRepo(req, res) {
 
 /**
  * Background ingestion pipeline.
- * Fetches all code files, ingests them into Cognee, and updates the repo record.
+ * Fetches all code files, builds the repository graph cache, ingests them into Cognee,
+ * and updates the repo record.
  *
  * @param {string} owner - Repo owner.
  * @param {string} repoName - Repo name.
@@ -124,6 +193,13 @@ async function runIngestion(owner, repoName, accessToken, repo) {
     // Fetch all code files from GitHub
     const files = await fetchRepoTree(owner, repoName, accessToken);
     console.log(`📄 Fetched ${files.length} files from ${owner}/${repoName}`);
+
+    const graphData = buildRepoGraph(files, repo.repoId, repo.fullName || repo.name);
+    await GraphCache.findOneAndUpdate(
+      { repoId: repo.repoId },
+      { repoId: repo.repoId, nodes: graphData.nodes, edges: graphData.edges, updatedAt: new Date() },
+      { upsert: true }
+    );
 
     // Ingest into Cognee
     const result = await cognee.ingest(repo.repoId, files);
@@ -153,7 +229,7 @@ async function runIngestion(owner, repoName, accessToken, repo) {
 
 /**
  * Get the graph data for a repository.
- * Returns cached data if available, otherwise fetches from Cognee.
+ * Returns cached data if available, otherwise rebuilds it from the GitHub tree.
  *
  * @route GET /api/repos/:id/graph
  */
@@ -166,7 +242,12 @@ async function getGraph(req, res) {
 
     // Check cache first
     const cached = await GraphCache.findOne({ repoId: repo.repoId });
-    if (cached) {
+    const hasRenderableNodes = cached
+      && Array.isArray(cached.nodes)
+      && cached.nodes.length > 1
+      && cached.nodes.some((node) => node.type === 'File');
+
+    if (hasRenderableNodes) {
       return res.json({
         success: true,
         nodes: cached.nodes,
@@ -174,8 +255,14 @@ async function getGraph(req, res) {
       });
     }
 
-    // Fetch fresh from Cognee
-    const graphData = await cognee.getGraphData(repo.repoId);
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'User not found' });
+    }
+
+    const [owner, repoName] = repo.fullName.split('/');
+    const files = await fetchRepoTree(owner, repoName, user.accessToken);
+    const graphData = buildRepoGraph(files, repo.repoId, repo.fullName);
 
     // Save to cache
     await GraphCache.findOneAndUpdate(

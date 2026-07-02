@@ -14,6 +14,7 @@ export default function ChatInterface({ repoId }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+  const storageKey = `codeatlas_chat:${repoId || 'unknown'}`;
 
   const starterPrompts = [
     'Explain the auth flow',
@@ -28,6 +29,30 @@ export default function ChatInterface({ repoId }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!repoId) return;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setMessages(parsed);
+        }
+      }
+    } catch {
+      // Ignore malformed cache entries.
+    }
+  }, [repoId, storageKey]);
+
+  useEffect(() => {
+    if (!repoId) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    } catch {
+      // Ignore storage quota or serialization issues.
+    }
+  }, [messages, repoId, storageKey]);
 
   const mutation = useMutation({
     mutationFn: (question) => queryCodebase(repoId, question),
