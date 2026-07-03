@@ -30,19 +30,25 @@ export default function Landing() {
       icon: '🗺️',
       title: 'Living Codebase Map',
       description:
-        'Visualize your entire codebase as an interactive force-directed graph. See how files, modules, and functions connect in real time.',
+        'Canonical code graph with real import edges, function nodes, and line-anchored snippets — not just a folder tree.',
     },
     {
-      icon: '🔍',
-      title: 'PR Impact Analysis',
+      icon: '💥',
+      title: 'PR Blast Radius',
       description:
-        'Every pull request is automatically analyzed. Know exactly which modules are affected before you merge.',
+        'Every PR triggers graph traversal to show exactly which files and functions are affected — with live highlight animation.',
+    },
+    {
+      icon: '🧭',
+      title: 'Onboarding Mode',
+      description:
+        'New devs get a guided tour through your architecture with context coverage score and AI-powered summaries.',
     },
     {
       icon: '💬',
       title: 'Ask Your Codebase',
       description:
-        'Query your codebase in plain English. "What does the auth flow look like?" — instant, context-aware answers.',
+        'Query in plain English with Cognee memory + graph-grounded answers that cite real file paths.',
     },
   ];
 
@@ -68,9 +74,9 @@ export default function Landing() {
           </div>
 
           <p className="text-lg md:text-xl text-atlas-muted leading-relaxed mb-10 max-w-2xl mx-auto">
-            Your codebase has a story.{' '}
+            The map that updates when you ship.{' '}
             <span className="text-atlas-text font-medium">
-              CodeAtlas makes sure your team always knows it.
+              Graph-grounded PR reviews, import relations, and team memory — powered by Cognee.
             </span>
           </p>
 
@@ -92,7 +98,7 @@ export default function Landing() {
         </div>
 
         {/* Features */}
-        <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mt-24 px-4">
+        <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mt-24 px-4">
           {features.map((feature, i) => (
             <div
               key={i}

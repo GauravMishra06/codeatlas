@@ -34,14 +34,31 @@ const prEventSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    changedFunctions: {
+      type: [String],
+      default: [],
+    },
     impactedModules: {
       type: [
         {
           name: String,
           filePath: String,
           reason: String,
+          nodeId: String,
+          type: String,
+          relationPath: [String],
+          startLine: Number,
+          endLine: Number,
         },
       ],
+      default: [],
+    },
+    impactedNodeIds: {
+      type: [String],
+      default: [],
+    },
+    changedNodeIds: {
+      type: [String],
       default: [],
     },
     review: {

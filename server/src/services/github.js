@@ -210,4 +210,40 @@ async function postReviewComment(owner, repo, prNumber, body, accessToken) {
   }
 }
 
-export { fetchRepoTree, fetchPRDiff, postReviewComment };
+/**
+ * Fetch content for specific file paths from a repository.
+ *
+ * @param {string} owner
+ * @param {string} repo
+ * @param {string[]} paths
+ * @param {string} accessToken
+ * @returns {Promise<Array<{path: string, content: string, language: string}>>}
+ */
+async function fetchFilesByPaths(owner, repo, paths, accessToken) {
+  const octokit = new Octokit({ auth: accessToken });
+  const files = [];
+
+  for (const filePath of paths) {
+    try {
+      const { data } = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: filePath,
+      });
+
+      if (data.type !== 'file' || !data.content) continue;
+
+      files.push({
+        path: filePath,
+        content: Buffer.from(data.content, 'base64').toString('utf-8'),
+        language: getLanguage(filePath),
+      });
+    } catch {
+      // Skip inaccessible files
+    }
+  }
+
+  return files;
+}
+
+export { fetchRepoTree, fetchPRDiff, postReviewComment, fetchFilesByPaths };

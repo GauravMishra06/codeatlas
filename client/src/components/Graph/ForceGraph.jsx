@@ -15,7 +15,15 @@ const NODE_COLORS = {
  * ForceGraph — D3 clustered force-directed graph visualization.
  * Nodes cluster by type and use curved edges.
  */
-export default function ForceGraph({ nodes, edges, onNodeClick, config }) {
+const EDGE_COLORS = {
+  contains: '#30363D',
+  imports: '#58A6FF',
+  tests: '#3FB950',
+  related: '#8B949E',
+  calls: '#BC8CFF',
+};
+
+export default function ForceGraph({ nodes, edges, onNodeClick, config, highlightedNodeIds = [], changedNodeIds = [] }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const simulationRef = useRef(null);
@@ -38,6 +46,9 @@ export default function ForceGraph({ nodes, edges, onNodeClick, config }) {
   const toggleFilter = useCallback((type) => {
     setActiveFilters((prev) => ({ ...prev, [type]: !prev[type] }));
   }, []);
+
+  const highlightSet = new Set(highlightedNodeIds);
+  const changedSet = new Set(changedNodeIds);
 
   useEffect(() => {
     if (!svgRef.current || !nodes.length) return;
@@ -96,15 +107,31 @@ export default function ForceGraph({ nodes, edges, onNodeClick, config }) {
     const link = g.append('g').selectAll('path')
       .data(edgesCopy).enter().append('path')
       .attr('fill', 'none')
-      .attr('stroke', '#30363D')
-      .attr('stroke-opacity', 0.5)
-      .attr('stroke-width', 1.5);
+      .attr('stroke', (d) => EDGE_COLORS[d.type] || '#30363D')
+      .attr('stroke-opacity', (d) => {
+        const src = typeof d.source === 'object' ? d.source.id : d.source;
+        const tgt = typeof d.target === 'object' ? d.target.id : d.target;
+        return highlightSet.has(src) || highlightSet.has(tgt) ? 0.9 : 0.4;
+      })
+      .attr('stroke-width', (d) => {
+        const src = typeof d.source === 'object' ? d.source.id : d.source;
+        const tgt = typeof d.target === 'object' ? d.target.id : d.target;
+        return highlightSet.has(src) || highlightSet.has(tgt) ? 2.5 : 1.5;
+      });
 
     const node = g.append('g').selectAll('circle')
       .data(nodesCopy).enter().append('circle')
       .attr('r', d => getNodeRadius(d, visibleEdges))
-      .attr('fill', d => NODE_COLORS[d.type] || '#8B949E')
-      .attr('stroke', d => NODE_COLORS[d.type] || '#8B949E')
+      .attr('fill', (d) => {
+        if (changedSet.has(d.id)) return '#F78166';
+        if (highlightSet.has(d.id)) return '#E3B341';
+        return NODE_COLORS[d.type] || '#8B949E';
+      })
+      .attr('stroke', (d) => {
+        if (changedSet.has(d.id)) return '#F78166';
+        if (highlightSet.has(d.id)) return '#E3B341';
+        return NODE_COLORS[d.type] || '#8B949E';
+      })
       .attr('stroke-width', 2)
       .attr('stroke-opacity', 0.3)
       .attr('cursor', 'pointer')
@@ -176,7 +203,7 @@ export default function ForceGraph({ nodes, edges, onNodeClick, config }) {
       simulation.stop();
       tooltip.classed('visible', false);
     };
-  }, [nodes, edges, config, activeFilters, getNodeRadius, onNodeClick]);
+  }, [nodes, edges, config, activeFilters, getNodeRadius, onNodeClick, highlightedNodeIds, changedNodeIds]);
 
   return (
     <div ref={containerRef} className="w-full h-full min-h-[500px] relative">

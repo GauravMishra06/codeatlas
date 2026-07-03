@@ -10,10 +10,12 @@ Built for the **WeMakeDevs × Cognee Hackathon** — *"The Hangover Part AI: Whe
 
 ## ✨ Features
 
-- **🗺️ Interactive Code Graph** — Force-directed D3.js visualization of your codebase architecture (files, modules, functions, and their relationships)
-- **🔍 PR Impact Analysis** — Automatic analysis of every pull request showing which modules are affected and why
-- **💬 Natural Language Queries** — Ask questions about your codebase in plain English and get context-aware answers
-- **⚡ Real-Time Updates** — Socket.io-powered live updates when PRs are analyzed
+- **🗺️ Canonical Code Graph** — File tree + function/class nodes + typed import/test edges from static analysis
+- **💥 PR Blast Radius** — Graph traversal highlights affected nodes live when PRs are analyzed
+- **🧭 Onboarding Mode** — Guided tour with context coverage score for new developers
+- **🔍 Grounded PR Reviews** — AI reviews cite verified file paths and relation paths from the graph
+- **💬 Natural Language Queries** — Cognee memory + single-pass Gemini synthesis with file citations
+- **⚡ Real-Time Updates** — Socket.io live updates (fixed dual-room join for MongoDB + GitHub IDs)
 - **🔐 GitHub OAuth** — Secure sign-in with GitHub, scoped to your repositories
 
 ---
@@ -145,7 +147,10 @@ codeatlas/
 | GET | `/auth/me` | Current user profile |
 | GET | `/api/repos` | List connected repos |
 | POST | `/api/repos/connect` | Connect a new repo |
-| GET | `/api/repos/:id/graph` | Get graph data |
+| GET | `/api/repos/:id/graph` | Get graph data (query: `?relations=contains,imports`) |
+| GET | `/api/repos/:id/onboarding` | Get onboarding tour steps |
+| GET | `/api/repos/:id/stats` | Get context coverage stats |
+| GET | `/api/repos/:id/node/:nodeId/code` | Get code snippet for a node |
 | GET | `/api/repos/:id/prs` | List PR events |
 | POST | `/api/webhooks/github` | GitHub webhook receiver |
 | POST | `/api/cognee/query` | Query codebase in NL |
