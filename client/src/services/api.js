@@ -5,7 +5,7 @@ import axios from 'axios';
  * All API calls should use this instance.
  */
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000',
+  baseURL: import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000' : ''),
 });
 
 /**
